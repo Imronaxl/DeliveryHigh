@@ -1,14 +1,17 @@
 package com.deliveryflow.service;
 
 import com.deliveryflow.api.dto.request.LoginRequest;
+import com.deliveryflow.api.dto.request.RefreshTokenRequest;
 import com.deliveryflow.api.dto.request.RegisterRequest;
 import com.deliveryflow.api.dto.response.AuthResponse;
+import com.deliveryflow.api.exception.UserNotFoundException;
 import com.deliveryflow.domain.entity.User;
 import com.deliveryflow.domain.enums.UserRole;
 import com.deliveryflow.domain.repository.UserRepository;
 import com.deliveryflow.security.JwtTokenProvider;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,7 +38,7 @@ public class AuthService {
     @Transactional
     public AuthResponse register(RegisterRequest request) {
         if (userRepository.existsByEmail(request.email())) {
-            throw new IllegalArgumentException("Email already exists");
+            throw new IllegalArgumentException("Email already exists: " + request.email());
         }
 
         User user = User.builder()
@@ -46,21 +49,7 @@ public class AuthService {
                 .role(UserRole.valueOf(request.role()))
                 .build();
 
-        User savedUser = userRepository.save(user);
-
-        String token = jwtTokenProvider.generateToken(
-                new org.springframework.security.core.userdetails.User(
-                        savedUser.getEmail(),
-                        savedUser.getPassword(),
-                        java.util.Collections.singletonList(
-                                new org.springframework.security.core.authority.SimpleGrantedAuthority(
-                                        "ROLE_" + savedUser.getRole().name()
-                                )
-                        )
-                )
-        );
-
-        return new AuthResponse(savedUser.getId(), savedUser.getEmail(), savedUser.getName(), token);
+        return buildAuthResponse(userRepository.save(user));
     }
 
     @Transactional
@@ -70,20 +59,39 @@ public class AuthService {
         );
 
         User user = userRepository.findByEmail(request.email())
-                .orElseThrow(() -> new IllegalArgumentException("Invalid email or password"));
+                .orElseThrow(() -> UserNotFoundException.byEmail(request.email()));
 
-        String token = jwtTokenProvider.generateToken(
-                new org.springframework.security.core.userdetails.User(
-                        user.getEmail(),
-                        user.getPassword(),
-                        java.util.Collections.singletonList(
-                                new org.springframework.security.core.authority.SimpleGrantedAuthority(
-                                        "ROLE_" + user.getRole().name()
-                                )
-                        )
-                )
+        return buildAuthResponse(user);
+    }
+
+    @Transactional(readOnly = true)
+    public AuthResponse refresh(RefreshTokenRequest request) {
+        if (!jwtTokenProvider.isRefreshToken(request.refreshToken())) {
+            throw new IllegalArgumentException("Provided token is not a refresh token");
+        }
+
+        String email = jwtTokenProvider.extractUsername(request.refreshToken());
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> UserNotFoundException.byEmail(email));
+
+        return buildAuthResponse(user);
+    }
+
+    private AuthResponse buildAuthResponse(User user) {
+        UserDetails userDetails = org.springframework.security.core.userdetails.User.builder()
+                .username(user.getEmail())
+                .password(user.getPassword())
+                .roles(user.getRole().name())
+                .build();
+
+        return new AuthResponse(
+                user.getId(),
+                user.getEmail(),
+                user.getName(),
+                user.getRole().name(),
+                jwtTokenProvider.generateToken(userDetails),
+                jwtTokenProvider.generateRefreshToken(userDetails),
+                user.getCreatedAt()
         );
-
-        return new AuthResponse(user.getId(), user.getEmail(), user.getName(), token);
     }
 }
