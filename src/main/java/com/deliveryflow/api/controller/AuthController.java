@@ -1,6 +1,7 @@
 package com.deliveryflow.api.controller;
 
 import com.deliveryflow.api.dto.request.LoginRequest;
+import com.deliveryflow.api.dto.request.RefreshTokenRequest;
 import com.deliveryflow.api.dto.request.RegisterRequest;
 import com.deliveryflow.api.dto.response.AuthResponse;
 import com.deliveryflow.service.AuthService;
@@ -29,5 +30,10 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
         return ResponseEntity.ok(authService.login(request));
+    }
+
+    @PostMapping("/refresh")
+    public ResponseEntity<AuthResponse> refresh(@Valid @RequestBody RefreshTokenRequest request) {
+        return ResponseEntity.ok(authService.refresh(request));
     }
 }
