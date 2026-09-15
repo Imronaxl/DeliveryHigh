@@ -1,8 +1,11 @@
 package com.deliveryflow.service;
 
 import com.deliveryflow.domain.entity.Order;
+import com.deliveryflow.domain.entity.User;
 import com.deliveryflow.domain.enums.OrderStatus;
+import com.deliveryflow.domain.enums.UserRole;
 import com.deliveryflow.domain.repository.OrderRepository;
+import com.deliveryflow.domain.repository.UserRepository;
 import com.deliveryflow.infrastructure.redis.CourierGeoRepository;
 import org.springframework.data.geo.Distance;
 import org.springframework.data.geo.GeoResult;
@@ -19,21 +22,34 @@ import java.util.UUID;
 public class CourierService {
 
     private final OrderRepository orderRepository;
+    private final UserRepository userRepository;
     private final CourierGeoRepository courierGeoRepository;
-    private final OrderService orderService;
 
     public CourierService(
             OrderRepository orderRepository,
-            CourierGeoRepository courierGeoRepository,
-            OrderService orderService) {
+            UserRepository userRepository,
+            CourierGeoRepository courierGeoRepository) {
         this.orderRepository = orderRepository;
+        this.userRepository = userRepository;
         this.courierGeoRepository = courierGeoRepository;
-        this.orderService = orderService;
     }
 
     @Transactional(readOnly = true)
     public List<Order> findAvailableOrders() {
         return orderRepository.findByStatus(OrderStatus.CREATED);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Order> findActiveOrders(UUID courierId) {
+        return orderRepository.findByCourierId(courierId).stream()
+                .filter(order -> order.getStatus() != OrderStatus.DELIVERED
+                        && order.getStatus() != OrderStatus.CANCELLED)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<User> findAllCouriers() {
+        return userRepository.findByRole(UserRole.COURIER);
     }
 
     @Transactional(readOnly = true)

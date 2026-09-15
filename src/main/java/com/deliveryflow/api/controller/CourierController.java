@@ -43,6 +43,14 @@ public class CourierController {
         return ResponseEntity.ok(orders.stream().map(orderMapper::toResponse).toList());
     }
 
+    @GetMapping("/orders/active")
+    public ResponseEntity<List<OrderResponse>> getActiveOrders(
+            @AuthenticationPrincipal UserDetails userDetails) {
+        UUID courierId = UUID.fromString(userDetails.getUsername());
+        List<Order> orders = courierService.findActiveOrders(courierId);
+        return ResponseEntity.ok(orders.stream().map(orderMapper::toResponse).toList());
+    }
+
     @PatchMapping("/orders/{id}/accept")
     public ResponseEntity<OrderResponse> acceptOrder(
             @PathVariable UUID id,
