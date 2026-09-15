@@ -92,5 +92,30 @@ services:
     depends_on:
       - prometheus
 
+  backend:
+    build: .
+    container_name: deliveryflow-backend
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/deliveryflow
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    container_name: deliveryflow-frontend
+    ports:
+      - "8088:80"
+    depends_on:
+      - backend
+
 volumes:
   postgres_data:
