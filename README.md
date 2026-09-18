@@ -128,7 +128,9 @@ python3 -m http.server 8000   # фронт на :8000 (CORS на бэкенде 
 - `GET /api/v1/admin/couriers` — курьеры
 - `GET /api/v1/admin/orders/{id}/history` — история статусов
 
-### WebSocket (STOMP over SockJS, endpoint `/ws`)
+### WebSocket (нативный WebSocket + STOMP, endpoint `/ws`)
+
+SockJS не используется — транспорт обычный WebSocket, поверх него STOMP-кадры. Состояние соединения видно в шапке по индикатору Live: зелёный — статусы приходят сами, серый — страницы работают в обычном режиме и обновляются вручную.
 
 | Топик | Что приходит |
 |-------|--------------|

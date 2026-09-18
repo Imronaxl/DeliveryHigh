@@ -33,11 +33,11 @@ frontend/
 │   ├── config.js       # адреса API/WS
 │   ├── api.js          # fetch-обёртка + автообновление JWT
 │   ├── auth.js         # сессия в localStorage
-│   ├── ws.js           # SockJS + STOMP, подписки на топики
+│   ├── ws.js           # нативный WebSocket + STOMP, подписки на топики
 │   ├── map.js          # обёртка над Leaflet
-│   ├── header.js       # шапка с навигацией по роли
+│   ├── header.js       # шапка с навигацией по роли и live-индикатором
 │   ├── router.js       # hash-роутер с проверкой роли
 │   ├── ui.js           # бейджи статусов, степпер, тосты
 │   └── views/          # экраны: авторизация, клиент, курьер, админ
-└── lib/                # sockjs, stomp.js, leaflet (без CDN)
+└── lib/                # stomp.js, leaflet (без CDN)
 ```
