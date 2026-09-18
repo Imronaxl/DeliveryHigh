@@ -1,10 +1,13 @@
 // обёртка над Leaflet, чтобы вьюхи не возились с деталями карты
 
 export function createMap(containerId, points = []) {
-  const map = L.map(containerId);
+  // дефолтный бейдж Leaflet в атрибуции убираем: оставляем только подпись OSM
+  const map = L.map(containerId, { attributionControl: false });
+  L.control.attribution({ prefix: false }).addTo(map);
+
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
-    attribution: '&copy; OpenStreetMap contributors',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   }).addTo(map);
 
   const markers = {};
