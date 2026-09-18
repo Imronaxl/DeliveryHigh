@@ -35,7 +35,7 @@ export async function courierAvailableView(root) {
       drawList();
     });
   } catch {
-    toast('Нет связи с WebSocket — обновляйте список вручную', 'error');
+    // без websocket лента работает в режиме ручного обновления
   }
 
   function drawList() {

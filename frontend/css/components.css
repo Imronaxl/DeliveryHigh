@@ -59,6 +59,34 @@
   gap: 12px;
 }
 
+/* live-индикатор websocket-соединения */
+.live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.live-pill i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.live-pill.live-on {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.12);
+}
+
+.live-pill.live-off {
+  color: #94a3b8;
+  background: rgba(148, 163, 184, 0.12);
+}
+
 .user-chip {
   text-align: right;
   line-height: 1.2;

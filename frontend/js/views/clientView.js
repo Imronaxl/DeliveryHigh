@@ -33,14 +33,15 @@ export async function clientOrdersView(root) {
 
   drawList();
 
-  // live-обновления статусов; без websocket страница работает в обычном режиме
+  // live-обновления статусов; без websocket страница работает в обычном режиме,
+  // состояние соединения видно по индикатору в шапке
   try {
     await connect();
     orders.filter(isActive).forEach(order => {
       subscribe(topics.orderStatus(order.id), onStatusUpdate);
     });
   } catch {
-    toast('Нет связи с WebSocket — статусы не будут обновляться в реальном времени', 'error');
+    // тихо: тост об ошибке не нужен, шапка уже показывает «Live офлайн»
   }
 
   async function select(orderId) {

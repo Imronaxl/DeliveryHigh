@@ -60,7 +60,7 @@ export async function adminOrdersView(root) {
   try {
     await connect();
   } catch {
-    toast('Нет связи с WebSocket — live-обновления недоступны', 'error');
+    // админская таблица и без live-обновлений полностью рабочая
   }
 
   async function load(pageNumber) {

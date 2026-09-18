@@ -1,7 +1,9 @@
 import { WS_URL } from './config.js';
 
 // один STOMP-клиент на всё приложение; вьюхи подписываются на топики,
-// а роутер при переходе отписывает подписки конкретной вьюхи
+// а роутер при переходе отписывает подписки конкретной вьюхи.
+// Транспорт — нативный WebSocket (SockJS не нужен: сервер поднимает
+// обычный /ws-эндпоинт), состояние соединения наружу отдаём событием.
 
 let client = null;
 let connecting = null;
@@ -13,18 +15,32 @@ export const topics = {
   availableOrders: () => '/topic/orders/available',
 };
 
+function notifyState(connected) {
+  document.dispatchEvent(new CustomEvent('ws:state', { detail: { connected } }));
+}
+
 export function connect() {
   if (client && client.connected) return Promise.resolve();
   if (connecting) return connecting;
 
   connecting = new Promise((resolve, reject) => {
-    client = Stomp.over(new SockJS(WS_URL));
+    client = Stomp.over(new WebSocket(WS_URL));
+    // в консоли болтливый лог stomp.js ни к чему
+    client.debug = () => {};
     client.reconnect_delay = 5000;
 
-    client.connect({}, () => resolve(), () => {
+    client.connect({}, () => {
+      notifyState(true);
+      resolve();
+    }, () => {
       connecting = null;
+      notifyState(false);
       reject(new Error('WebSocket connection failed'));
     });
+
+    // stomp.js сам переподключается — ловим момент восстановления
+    const socket = client.ws;
+    socket?.addEventListener('close', () => notifyState(false));
   });
 
   return connecting;
@@ -51,4 +67,5 @@ export function disconnect() {
   client = null;
   connecting = null;
   viewSubs = [];
+  notifyState(false);
 }
