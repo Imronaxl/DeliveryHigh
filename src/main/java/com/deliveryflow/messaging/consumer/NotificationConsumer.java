@@ -9,10 +9,14 @@ import org.springframework.stereotype.Component;
 @Component
 public class NotificationConsumer {
 
-    private static final Logger log = LoggerFactory.getLogger(NotificationConsumer.class);
+  private static final Logger log = LoggerFactory.getLogger(NotificationConsumer.class);
 
-    @KafkaListener(topics = "notifications.send", groupId = "notification-service-group")
-    public void consumeNotification(NotificationSendEvent event) {
-        log.info("Received notification event for user {}: {} - {}", event.userId(), event.type(), event.message());
-    }
+  @KafkaListener(topics = "notifications.send", groupId = "notification-service-group")
+  public void consumeNotification(NotificationSendEvent event) {
+    log.info(
+        "Received notification event for user {}: {} - {}",
+        event.userId(),
+        event.type(),
+        event.message());
+  }
 }

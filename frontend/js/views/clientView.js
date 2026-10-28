@@ -1,5 +1,5 @@
 import { request } from '../api.js';
-import { connect, subscribe, topics, isConnected } from '../ws.js';
+import { connect, subscribe, topics, observeReconnect, isConnected } from '../ws.js';
 import { navigate } from '../router.js';
 import {
   STATUS, statusBadge, stepper, formatDate, shortId,
@@ -10,15 +10,15 @@ import { createMap, addMarker, drawRoute } from '../map.js';
 const isActive = order => !['DELIVERED', 'CANCELLED'].includes(order.status);
 const canCancel = order => ['CREATED', 'ASSIGNED'].includes(order.status);
 
-// ==================== мои заказы ====================
-
 export async function clientOrdersView(root) {
   const orders = await request('/api/v1/orders/me');
+  if (!root.isConnected) return;
   orders.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
   let selectedId = null;
   let courierSub = null;
   let currentMap = null;
+  root.addEventListener('view:dispose', () => { currentMap?.remove(); courierSub?.unsubscribe(); }, { once: true });
 
   root.innerHTML = `
     <div class="split">
@@ -32,16 +32,21 @@ export async function clientOrdersView(root) {
     </div>`;
 
   drawList();
+  observeReconnect(root, async () => {
+    const fresh = await request('/api/v1/orders/me');
+    if (!root.isConnected) return;
+    orders.splice(0, orders.length, ...fresh.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+    drawList();
+    const selected = orders.find(order => order.id === selectedId);
+    if (selected) renderDetail(selected);
+  });
 
-  // live-обновления статусов; без websocket страница работает в обычном режиме,
-  // состояние соединения видно по индикатору в шапке
   try {
-    await connect();
     orders.filter(isActive).forEach(order => {
       subscribe(topics.orderStatus(order.id), onStatusUpdate);
     });
+    await connect();
   } catch {
-    // тихо: тост об ошибке не нужен, шапка уже показывает «Live офлайн»
   }
 
   async function select(orderId) {
@@ -75,6 +80,9 @@ export async function clientOrdersView(root) {
   function renderDetail(order) {
     const detail = root.querySelector('#order-detail');
 
+    courierSub?.unsubscribe();
+    courierSub = null;
+    currentMap?.remove();
     detail.innerHTML = `
       <div class="card">
         <div class="detail-head">
@@ -94,7 +102,6 @@ export async function clientOrdersView(root) {
         ${canCancel(order) ? '<br><button class="btn btn-danger" id="cancel-btn">Отменить заказ</button>' : ''}
       </div>`;
 
-    // Leaflet требует, чтобы контейнер уже был в DOM
     currentMap = createMap('detail-map', [
       { key: 'pickup', lat: order.pickupLat, lng: order.pickupLng, cls: 'marker-a', label: 'A' },
       { key: 'delivery', lat: order.deliveryLat, lng: order.deliveryLng, cls: 'marker-b', label: 'B' },
@@ -105,8 +112,7 @@ export async function clientOrdersView(root) {
       { lat: order.deliveryLat, lng: order.deliveryLng }
     );
 
-    // если курьер уже назначен — следим за его перемещениями
-    if (order.courierId) watchCourier(order.courierId);
+    if (order.courierId && isActive(order)) watchCourier(order.courierId);
 
     const cancelBtn = detail.querySelector('#cancel-btn');
     if (cancelBtn) {
@@ -125,9 +131,8 @@ export async function clientOrdersView(root) {
   }
 
   function watchCourier(courierId) {
-    if (!currentMap || !isConnected()) return;
+    if (!currentMap) return;
 
-    // переподписываемся заново, чтобы не плодить дубли на один и тот же топик
     courierSub?.unsubscribe();
     let marker = null;
 
@@ -145,28 +150,17 @@ export async function clientOrdersView(root) {
     });
   }
 
-  function onStatusUpdate(payload) {
+  async function onStatusUpdate(payload) {
     const order = orders.find(o => o.id === payload.orderId);
     if (!order) return;
-
-    order.status = payload.newStatus;
+    const fresh = await request(`/api/v1/orders/${order.id}`);
+    if (!root.isConnected) return;
+    Object.assign(order, fresh);
     drawList();
-
-    if (order.id === selectedId) {
-      const badge = root.querySelector('#detail-badge');
-      const steps = root.querySelector('#detail-stepper');
-      if (badge) badge.innerHTML = statusBadge(order.status);
-      if (steps) steps.innerHTML = stepper(order.status);
-
-      // курьер мог появиться только что — начинаем следить
-      if (order.courierId) watchCourier(order.courierId);
-    }
-
+    if (order.id === selectedId) renderDetail(order);
     toast(`Заказ #${shortId(order.id)}: ${STATUS[order.status].label}`, 'success');
   }
 }
-
-// ==================== создание заказа ====================
 
 export async function clientNewOrderView(root) {
   let pickup = null;
@@ -206,6 +200,7 @@ export async function clientNewOrderView(root) {
 
   const form = root.querySelector('#order-form');
   const { map } = createMap('pick-map');
+  root.addEventListener('view:dispose', () => map.remove(), { once: true });
   map.on('click', onMapClick);
 
   function onMapClick(event) {

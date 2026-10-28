@@ -1,71 +1,107 @@
 import { WS_URL } from './config.js';
-
-// один STOMP-клиент на всё приложение; вьюхи подписываются на топики,
-// а роутер при переходе отписывает подписки конкретной вьюхи.
-// Транспорт — нативный WebSocket (SockJS не нужен: сервер поднимает
-// обычный /ws-эндпоинт), состояние соединения наружу отдаём событием.
+import { getAccessToken, getSession } from './auth.js';
+import { refreshSession } from './api.js';
 
 let client = null;
 let connecting = null;
-let viewSubs = [];
+let retryTimer = null;
+let stopped = false;
+let generation = 0;
+const subscriptions = new Set();
 
 export const topics = {
-  orderStatus: orderId => `/topic/orders/${orderId}/status`,
-  courierLocation: courierId => `/topic/courier/${courierId}/location`,
+  orderStatus: id => `/topic/orders/${id}/status`,
+  courierLocation: id => `/topic/courier/${id}/location`,
   availableOrders: () => '/topic/orders/available',
+  adminOrders: () => '/topic/admin/orders',
 };
 
 function notifyState(connected) {
   document.dispatchEvent(new CustomEvent('ws:state', { detail: { connected } }));
 }
 
+function bind(entry) {
+  entry.active = client.subscribe(entry.topic, message => {
+    try { Promise.resolve(entry.handler(JSON.parse(message.body))).catch(console.error); }
+    catch (error) { console.error(error); }
+  });
+}
+
+function retry() {
+  if (stopped || retryTimer || !getSession()) return;
+  retryTimer = setTimeout(async () => {
+    retryTimer = null;
+    if (stopped || !getSession()) return;
+    await refreshSession();
+    if (!stopped) connect().catch(() => {});
+  }, 5000);
+}
+
 export function connect() {
-  if (client && client.connected) return Promise.resolve();
+  stopped = false;
+  if (client?.connected) return Promise.resolve();
   if (connecting) return connecting;
-
+  const version = generation;
   connecting = new Promise((resolve, reject) => {
-    client = Stomp.over(new WebSocket(WS_URL));
-    // в консоли болтливый лог stomp.js ни к чему
-    client.debug = () => {};
-    client.reconnect_delay = 5000;
-
-    client.connect({}, () => {
-      notifyState(true);
-      resolve();
-    }, () => {
+    const socket = new WebSocket(WS_URL);
+    const connection = Stomp.over(socket);
+    client = connection;
+    connection.debug = () => {};
+    let settled = false;
+    const timeout = setTimeout(() => socket.close(), 10000);
+    socket.addEventListener('close', () => {
+      clearTimeout(timeout);
+      if (version !== generation) return;
       connecting = null;
       notifyState(false);
-      reject(new Error('WebSocket connection failed'));
+      if (!settled) reject(new Error('WebSocket connection failed'));
+      retry();
     });
-
-    // stomp.js сам переподключается — ловим момент восстановления
-    const socket = client.ws;
-    socket?.addEventListener('close', () => notifyState(false));
+    connection.connect({ Authorization: 'Bearer ' + getAccessToken() }, () => {
+      clearTimeout(timeout);
+      if (version !== generation) { socket.close(); return; }
+      settled = true;
+      connecting = null;
+      subscriptions.forEach(bind);
+      notifyState(true);
+      document.dispatchEvent(new CustomEvent('ws:reconnected'));
+      resolve();
+    }, () => socket.close());
   });
-
   return connecting;
 }
 
 export function subscribe(topic, handler) {
-  if (!client) throw new Error('WebSocket is not connected yet');
-  const sub = client.subscribe(topic, message => handler(JSON.parse(message.body)));
-  viewSubs.push(sub);
-  return sub;
+  const entry = { topic, handler, active: null };
+  subscriptions.add(entry);
+  if (client?.connected) bind(entry);
+  return { unsubscribe() {
+    if (!subscriptions.delete(entry)) return;
+    if (client?.connected) entry.active?.unsubscribe();
+  } };
 }
 
-export function isConnected() {
-  return !!(client && client.connected);
-}
+export function isConnected() { return !!client?.connected; }
 
 export function unsubscribeViewSubs() {
-  viewSubs.forEach(sub => sub.unsubscribe());
-  viewSubs = [];
+  if (client?.connected) subscriptions.forEach(entry => entry.active?.unsubscribe());
+  subscriptions.clear();
 }
 
 export function disconnect() {
-  if (client) client.disconnect(() => {});
+  stopped = true;
+  generation += 1;
+  clearTimeout(retryTimer);
+  retryTimer = null;
+  unsubscribeViewSubs();
+  client?.ws?.close();
   client = null;
   connecting = null;
-  viewSubs = [];
   notifyState(false);
+}
+
+export function observeReconnect(root, handler) {
+  const listener = () => Promise.resolve(handler()).catch(console.error);
+  document.addEventListener('ws:reconnected', listener);
+  root.addEventListener('view:dispose', () => document.removeEventListener('ws:reconnected', listener), { once: true });
 }

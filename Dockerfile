@@ -1,4 +1,3 @@
-# Multi-stage build: compile with gradle, run on a slim JRE image
 FROM gradle:8.8-jdk21 AS build
 WORKDIR /app
 
@@ -10,6 +9,9 @@ FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
 COPY --from=build /app/build/libs/*.jar app.jar
+
+RUN addgroup -S delivery && adduser -S -G delivery delivery
+USER delivery
 
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "app.jar"]

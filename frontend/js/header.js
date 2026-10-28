@@ -1,8 +1,7 @@
 import { getSession, logout } from './auth.js';
 import { disconnect, isConnected } from './ws.js';
-import { logoHtml } from './ui.js';
+import { logoHtml, escapeHtml } from './ui.js';
 
-// навигация в шапке зависит от роли
 const NAV = {
   CLIENT: [
     { href: '#/client/orders', label: 'Мои заказы' },
@@ -20,7 +19,6 @@ const NAV = {
 
 const ROLE_LABEL = { CLIENT: 'клиент', COURIER: 'курьер', ADMIN: 'админ' };
 
-// индикатор live-соединения: зелёная точка = статус приходят сами
 function livePillHtml(connected) {
   return `
     <span class="live-pill ${connected ? 'live-on' : 'live-off'}" id="live-pill">
@@ -28,7 +26,6 @@ function livePillHtml(connected) {
     </span>`;
 }
 
-// ws.js сообщает о смене состояния через событие на document
 document.addEventListener('ws:state', event => {
   const pill = document.getElementById('live-pill');
   if (pill) pill.outerHTML = livePillHtml(event.detail.connected);
@@ -57,7 +54,7 @@ export function renderHeader() {
     <div class="topbar-user">
       ${livePillHtml(isConnected())}
       <div class="user-chip">
-        <b>${user.name}</b>
+        <b>${escapeHtml(user.name)}</b>
         <span>${ROLE_LABEL[user.role] || user.role}</span>
       </div>
       <button class="btn btn-ghost" id="logout-btn" style="color:#cbd5e1">Выйти</button>

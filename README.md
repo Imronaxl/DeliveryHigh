@@ -1,169 +1,150 @@
 # DeliveryFlow
 
-Система управления доставкой в реальном времени: клиенты создают заказы, курьеры их забирают и транслируют своё местоположение, админ видит всё происходящее. Бэкенд на Java 21, веб-клиент — без фреймворков.
+Система доставки с тремя ролями: клиент создаёт заказ, курьер принимает и доставляет его, администратор просматривает заказы и историю. Репозиторий называется DeliveryHigh, приложение — DeliveryFlow.
 
-**Java 21 · Spring Boot 3.3 · Kafka · Redis · PostgreSQL · WebSocket · Leaflet**
+Java 21 · Spring Boot 3.3 · PostgreSQL 16 · Kafka · Redis · WebSocket/STOMP · Vanilla JS · Leaflet
 
-## Что здесь интересного
+## Запуск
 
-- **Событийная архитектура**: заказы и локации идут через Kafka, консьюмеры разливают события в WebSocket — клиент видит движение курьера на карте в реальном времени
-- **Redis Geo** для хранения координат курьеров, **Redisson** для распределённых блокировок на переходах статусов (два курьера не смогут перехватить один заказ)
-- **Виртуальные потоки** (Project Loom) включены одной строкой конфига
-- **Веб-клиент на чистом JS** — без React/Vue/сборки: hash-роутер, STOMP-клиент и работа с fetch написаны руками, чтобы показать, как это устроено под капотом фреймворков
-- **JWT с refresh-токенами**: клиент молча обновляет пару токенов при 401 и повторяет запрос
-- **Валидатор конечного автомата статусов**: CREATED → ASSIGNED → PICKED_UP → IN_TRANSIT → DELIVERED, отменить можно только пока заказ не забран
+Нужен Docker с Compose v2.
 
-## Скриншоты
+```bash
+cp .env.example .env
+```
 
-Создание заказа — точки А и Б ставятся кликом по карте:
+В `.env` задайте `JWT_SECRET` длиной не менее 32 байт. Для создания администратора укажите `ADMIN_EMAIL` и `ADMIN_PASSWORD` длиной 12–72 символа. Администратор создаётся при первом запуске; существующий пароль автоматически не меняется. Публичная регистрация доступна только клиентам и курьерам.
 
-![Создание заказа](docs/screenshots/02-new-order.png)
+```bash
+docker compose up --build -d
+docker compose logs -f backend
+```
 
-Клиент следит за заказом: степпер статусов и карта с маршрутом (курьерская метка двигается по WebSocket):
+Откройте http://localhost:8088. Первый запуск занимает время: загружаются образы и зависимости, затем применяются миграции.
 
-![Карточка заказа](docs/screenshots/03-client-detail.png)
+| Сервис | Адрес |
+|---|---|
+| Веб-клиент | http://localhost:8088 |
+| API | http://localhost:8080/api/v1 |
+| Health | http://localhost:8080/actuator/health |
+| Kafka UI | http://localhost:8090 |
+| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3000 |
 
-Курьер: приём заказа, кнопки переходов по статусам, кнопка «Выйти на линию» запускает передачу координат:
+Grafana использует демонстрационные `admin/admin`. Сервисы инфраструктуры открывают локальные порты; перед размещением на сервере ограничьте доступ и настройте TLS. JWT и сведения о пользователе хранятся в sessionStorage отдельно для каждой вкладки. Выход удаляет сессию вкладки; серверного отзыва refresh-токенов нет.
 
-![Кабинет курьера](docs/screenshots/05-courier-active.png)
+## Сценарий
 
-Админ: все заказы с пагинацией, история статусов и карта:
+1. Зарегистрируйте клиента и курьера в разных вкладках. В третьей войдите администратором, созданным через переменные окружения.
+2. Клиент: «Новый заказ», адреса и две точки на карте, затем «Создать заказ».
+3. Курьер: «Доступные» → «Взять заказ» → «Выйти на линию».
+4. Клиент: откройте заказ. Карта получает координаты через WebSocket.
+5. Курьер: «Забрал посылку» → «Выехал к клиенту» → «Доставлен».
+6. Администратор: выберите заказ для просмотра карты и истории.
 
-![Панель админа](docs/screenshots/06-admin-order.png)
+Координаты курьера симулируются в браузере раз в три секунды. Линия A–B на карте прямая; геокодирование, дорожные маршруты, ETA и настоящий GPS не реализованы.
 
 ## Архитектура
 
-```
-Клиент (SPA) ──REST──►  Spring Boot API ──►  PostgreSQL
-     ▲                       │    │
-     │                       ▼    ▼
-     │                    Kafka   Redis (Geo + Locks)
-     │                       │
-     └────WebSocket (STOMP)──┤
-                             ▼
-                   Consumers: location → Redis Geo → WS,
-                              status → WS, order → WS
-```
+Backend — слоистый монолит. REST-команды проходят через Spring Security, сервисы и JPA в PostgreSQL. Статусы меняются под блокировкой строки заказа до commit. История и событие outbox сохраняются в той же транзакции.
 
-Поток события локации: `POST /courier/location` → Kafka `courier.location-updated` → consumer пишет точку в Redis Geo и ретранслирует в `/topic/courier/{id}/location` → карта у клиента двигает маркер.
+Планировщик читает outbox и отправляет события в Kafka. После подтверждения брокером запись удаляется. При ошибке транзакция откатывается и отправка повторяется. Доставка — at least once: после сбоя возможны дубликаты. Consumers передают события в STOMP broker; координаты также записываются в Redis GEO.
 
-## Роли
+Simple broker находится в памяти одного backend. Текущая конфигурация рассчитана на один экземпляр приложения. Для нескольких экземпляров нужен внешний STOMP broker или отдельная схема рассылки событий.
 
-| Роль | Возможности |
-|------|-------------|
-| CLIENT | Создание заказов (точки кликом по карте), отслеживание с живой картой, отмена |
-| COURIER | Лента доступных заказов (пополняется сама), принятие, смена статусов, трансляция геолокации |
-| ADMIN | Все заказы с пагинацией, история статусов, список курьеров, live-карта |
+WebSocket подключается по `/ws`. JWT передаётся в STOMP CONNECT; SUBSCRIBE проверяет роль и отношение пользователя к заказу/курьеру. Клиентские SEND запрещены. После разрыва frontend повторяет подключение и восстанавливает подписки.
 
-## Как посмотреть демо
-
-```bash
-docker compose up -d          # поднимет всю инфраструктуру + бэкенд + фронт
-# открыть http://localhost:8088
+```text
+src/main/java/com/deliveryflow/
+├── api/             HTTP-контроллеры, DTO, ошибки
+├── config/          Security, Kafka, Redis, STOMP, bootstrap администратора
+├── domain/          JPA-сущности, enum, репозитории
+├── infrastructure/  Redis GEO, WebSocket-рассылка
+├── mapper/          MapStruct
+├── messaging/       События, outbox, producers, consumers
+├── security/        JWT и текущий пользователь
+└── service/         Сценарии приложения
+src/main/resources/db/migration/
+src/test/java/
+frontend/
+├── css/
+├── js/              ES modules, роутер, API, авторизация, карты, экраны
+├── lib/             Локальные Leaflet и STOMP
+└── tests/           Node.js tests
 ```
 
-Дальше — самый наглядный сценарий, три окна браузера:
+## Статусы
 
-1. В первом окне зарегистрируйтесь как **Клиент**, во втором — как **Курьер**, в третьем — как **Админ**
-2. Клиент: «Новый заказ» → поставьте точки А и Б кликами по карте → «Создать заказ»
-3. Курьер: во вкладке «Доступные» заказ появится сам (toast «Появился новый заказ») → «Взять заказ» → «Выйти на линию» — курьер начнёт передавать координаты каждые 3 секунды
-4. Клиент: откройте заказ — синяя метка курьера движется по карте, статусы обновляются сами
-5. Курьер: «Забрал посылку» → «Выехал к клиенту» → «Доставлен» — у клиента и админа всё меняется в реальном времени
-6. Админ: клик по заказу в таблице — история всех переходов статусов с таймингами
+`CREATED → ASSIGNED → PICKED_UP → IN_TRANSIT → DELIVERED`
 
-## Запуск для разработки
-
-Инфраструктура отдельно, бэкенд и фронт — локально:
-
-```bash
-docker compose up -d postgres redis kafka zookeeper
-./gradlew bootRun             # API на :8080
-
-cd frontend
-python3 -m http.server 8000   # фронт на :8000 (CORS на бэкенде уже открыт)
-```
-
-Метрики: Prometheus `:9090`, Grafana `:3000` (admin/admin), Kafka UI `:8090`.
-
-## Структура проекта
-
-```
-├── src/main/java/com/deliveryflow/
-│   ├── api/            # контроллеры, DTO, обработка исключений
-│   ├── config/         # security (JWT), Kafka, Redis, WebSocket
-│   ├── domain/         # сущности, репозитории, enum статусов
-│   ├── infrastructure/ # Redis Geo, распределённые блокировки, WS-рассылка
-│   ├── mapper/         # MapStruct
-│   ├── messaging/      # Kafka продюсеры/консьюмеры, события
-│   ├── security/       # JWT-провайдер, фильтр
-│   └── service/        # бизнес-логика
-├── frontend/           # SPA-клиент (подробнее — frontend/README.md)
-├── docs/screenshots/
-├── docker-compose.yml  # postgres, redis, kafka, backend, nginx-фронт, мониторинг
-└── Dockerfile          # multi-stage: сборка gradle → slim JRE
-```
+Из `CREATED` и `ASSIGNED` создатель может отменить заказ: `CANCELLED`. Терминальные состояния не изменяются. Назначенный курьер может выполнить только следующий этап доставки. Клиент читает свои заказы, администратор — любые.
 
 ## API
 
-### Authentication
-- `POST /api/v1/auth/register` — регистрация (email, пароль, имя, роль)
-- `POST /api/v1/auth/login` — вход
-- `POST /api/v1/auth/refresh` — обновление пары токенов
+Все пути ниже начинаются с `/api/v1`. Защищённые запросы используют `Authorization: Bearer <accessToken>`.
 
-### Orders (CLIENT)
-- `POST /api/v1/orders` — создать заказ
-- `GET /api/v1/orders/{id}` — получить заказ
-- `GET /api/v1/orders/me` — мои заказы
-- `DELETE /api/v1/orders/{id}` — отменить
+| Метод | Путь | Назначение |
+|---|---|---|
+| POST | `/auth/register` | email, password, name, phone, role: CLIENT/COURIER |
+| POST | `/auth/login` | Вход по email/password |
+| POST | `/auth/refresh` | Новая пара JWT по refreshToken |
+| POST | `/orders` | Создать заказ |
+| GET | `/orders/me` | Заказы клиента |
+| GET | `/orders/{id}` | Карточка с проверкой доступа |
+| DELETE | `/orders/{id}` | Отменить заказ |
+| GET | `/courier/orders/available` | Заказы CREATED |
+| GET | `/courier/orders/active` | Активные заказы текущего курьера |
+| PATCH | `/courier/orders/{id}/accept` | Принять заказ |
+| PATCH | `/courier/orders/{id}/status` | Тело `{ "status": "PICKED_UP" }` |
+| POST | `/courier/location` | latitude, longitude |
+| GET | `/admin/orders?page=0&size=10&sort=createdAt,desc` | Страница заказов |
+| GET | `/admin/couriers` | Курьеры |
+| GET | `/admin/orders/{id}/history` | История, сначала новые записи |
 
-### Courier (COURIER)
-- `GET /api/v1/courier/orders/available` — свободные заказы
-- `GET /api/v1/courier/orders/active` — заказы в работе
-- `PATCH /api/v1/courier/orders/{id}/accept` — взять заказ
-- `PATCH /api/v1/courier/orders/{id}/status` — сменить статус
-- `POST /api/v1/courier/location` — передать координаты
+Создание заказа принимает `pickupAddress`, `pickupLat`, `pickupLng`, `deliveryAddress`, `deliveryLat`, `deliveryLng`, необязательный `description`. Широта ограничена ±90°, долгота ±180°.
 
-### Admin (ADMIN)
-- `GET /api/v1/admin/orders?page=&size=` — все заказы (Spring Page)
-- `GET /api/v1/admin/couriers` — курьеры
-- `GET /api/v1/admin/orders/{id}/history` — история статусов
+| STOMP topic | Payload |
+|---|---|
+| `/topic/admin/orders` | События заказов для ADMIN |
+| `/topic/orders/available` | OrderCreatedEvent или изменение доступности заказа |
+| `/topic/orders/{id}/status` | OrderStatusChangedEvent |
+| `/topic/courier/{id}/location` | CourierLocationUpdatedEvent |
 
-### WebSocket (нативный WebSocket + STOMP, endpoint `/ws`)
+Kafka topics: `orders.created`, `orders.status-changed`, `courier.location-updated`, `notifications.send`. Последний consumer только записывает уведомление в лог; внешние каналы доставки не подключены.
 
-SockJS не используется — транспорт обычный WebSocket, поверх него STOMP-кадры. Состояние соединения видно в шапке по индикатору Live: зелёный — статусы приходят сами, серый — страницы работают в обычном режиме и обновляются вручную.
+## Разработка
 
-| Топик | Что приходит |
-|-------|--------------|
-| `/topic/orders/{id}/status` | смена статуса заказа |
-| `/topic/courier/{id}/location` | новые координаты курьера |
-| `/topic/orders/available` | новый заказ для курьеров |
-
-## Статусы заказа
-
-```
-CREATED → ASSIGNED → PICKED_UP → IN_TRANSIT → DELIVERED
-   └────────┴─→ CANCELLED
-```
-
-Переходы валидируются автоматом; конкурентные смены статуса сериализуются распределённой блокировкой Redisson по id заказа.
-
-## Тестирование
+Нужны JDK 21, Docker; для frontend-тестов — Node.js 20+.
 
 ```bash
-./gradlew test              # unit-тесты OrderService
-./gradlew integrationTest   # интеграционные с Testcontainers
+docker compose up -d postgres redis kafka zookeeper
+./gradlew bootRun
 ```
 
-## Известные компромиссы
+Для bootstrap администратора и своего JWT secret передайте `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `JWT_SECRET` в окружение процесса Java. По умолчанию локальная конфигурация использует БД `deliveryflow`, пользователя/пароль `delivery/delivery`, Redis на 6379 и Kafka на 9092.
 
-Честный список того, что в продакшене сделал бы иначе:
+```bash
+cd frontend
+python3 -m http.server 8000
+```
 
-- **JWT в localStorage** — уязвим к XSS; по-взрослому это HttpOnly cookie + CSRF-защита
-- **Simple broker вместо RabbitMQ/STOMP-брокера** — нет адресации на конкретного пользователя, поэтому клиент подписывается на топики своих заказов поэлементно
-- **Курьерский «GPS» — симулятор** (движение между точками А и Б), чтобы демо работало без телефона; заменяется на `navigator.geolocation` одной функцией
-- **Тайлинг карты ходит на OSM** — для продакшена нужен свой провайдер тайлов
-- **Refresh-токены не имеют server-side отзыва** — при компрометации остаётся ждать истечения
+Откройте http://localhost:8000. Порты разработки: 5500, 8000, 8081, 3001; на них API направляется на localhost:8080.
 
-## Лицензия
+```bash
+./gradlew test
+./gradlew spotlessCheck bootJar
+node --test frontend/tests/*.test.js
+node scripts/smoke.mjs
+```
 
-MIT
+`scripts/smoke.mjs` требует запущенный Compose-стек и Node.js 22+. Проверяет Kafka → STOMP, координаты через Redis, конкурентное назначение и полный цикл доставки. Для проверки истории передайте `ADMIN_EMAIL` и `ADMIN_PASSWORD`.
+
+Unit-тесты проверяют статусы, доступ и JWT. HTTP-тесты запускают Spring Boot с H2 и отключённой внешней инфраструктурой. Проверка миграций и HTTP-сценариев на PostgreSQL использует Testcontainers и пропускается без Docker. H2-тесты не заменяют проверку миграций PostgreSQL и полного Compose-стека.
+
+Миграции применяет Flyway, Hibernate проверяет схему через `ddl-auto: validate`. Для изменения существующей БД добавляйте новую миграцию.
+
+## Скриншоты
+
+![Создание заказа](docs/screenshots/02-new-order.png)
+![Карточка клиента](docs/screenshots/03-client-detail.png)
+![Курьер](docs/screenshots/05-courier-active.png)
+![Администратор](docs/screenshots/06-admin-order.png)

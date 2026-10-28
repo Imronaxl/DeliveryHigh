@@ -1,7 +1,4 @@
-// обёртка над Leaflet, чтобы вьюхи не возились с деталями карты
-
 export function createMap(containerId, points = []) {
-  // дефолтный бейдж Leaflet в атрибуции убираем: оставляем только подпись OSM
   const map = L.map(containerId, { attributionControl: false });
   L.control.attribution({ prefix: false }).addTo(map);
 
@@ -20,7 +17,6 @@ export function createMap(containerId, points = []) {
   } else if (points.length > 1) {
     map.fitBounds(points.map(p => [p.lat, p.lng]), { padding: [40, 40] });
   } else {
-    // центр Москвы как дефолтная песочница
     map.setView([55.751244, 37.6184], 12);
   }
 

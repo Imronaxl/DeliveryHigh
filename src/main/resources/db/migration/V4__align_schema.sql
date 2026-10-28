@@ -1,0 +1,17 @@
+ALTER TABLE users ALTER COLUMN created_at TYPE TIMESTAMPTZ USING created_at AT TIME ZONE 'UTC';
+ALTER TABLE orders ALTER COLUMN created_at TYPE TIMESTAMPTZ USING created_at AT TIME ZONE 'UTC';
+ALTER TABLE orders ALTER COLUMN updated_at TYPE TIMESTAMPTZ USING updated_at AT TIME ZONE 'UTC';
+ALTER TABLE order_status_history ALTER COLUMN changed_at TYPE TIMESTAMPTZ USING changed_at AT TIME ZONE 'UTC';
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS fk_orders_client;
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS fk_orders_courier;
+ALTER TABLE order_status_history DROP CONSTRAINT IF EXISTS fk_history_order;
+ALTER TABLE order_status_history DROP CONSTRAINT IF EXISTS fk_history_user;
+DROP INDEX IF EXISTS idx_users_email;
+CREATE TABLE event_outbox (
+    id BIGSERIAL PRIMARY KEY,
+    topic VARCHAR(100) NOT NULL,
+    event_key VARCHAR(100) NOT NULL,
+    event_type VARCHAR(150) NOT NULL,
+    payload TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

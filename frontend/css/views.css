@@ -1,7 +1,3 @@
-/* view-specific styles */
-
-/* ---- auth pages ---- */
-
 .auth-wrap {
   min-height: calc(100vh - 140px);
   display: flex;
@@ -39,8 +35,6 @@
   color: var(--muted);
   text-align: center;
 }
-
-/* role picker on the register page */
 
 .role-cards {
   display: grid;
@@ -83,8 +77,6 @@
   margin-top: 3px;
 }
 
-/* ---- two-column layout ---- */
-
 .split {
   display: grid;
   grid-template-columns: 380px 1fr;
@@ -92,7 +84,6 @@
   align-items: start;
 }
 
-/* у админа слева широкая таблица */
 .split-wider {
   grid-template-columns: 1fr 460px;
 }
@@ -106,8 +97,6 @@
     grid-template-columns: 1fr;
   }
 }
-
-/* ---- order cards ---- */
 
 .order-list {
   display: flex;
@@ -160,8 +149,6 @@
   margin: 8px 0;
 }
 
-/* ---- order detail ---- */
-
 .detail-head {
   display: flex;
   justify-content: space-between;
@@ -203,8 +190,6 @@
   color: var(--muted);
   margin-bottom: 14px;
 }
-
-/* ---- map ---- */
 
 .map {
   height: 320px;
@@ -250,8 +235,6 @@
   animation: pulse 1.6s infinite;
 }
 
-/* ---- new order form ---- */
-
 .mode-switch {
   display: flex;
   gap: 8px;
@@ -287,8 +270,6 @@
   margin: -8px 0 14px;
 }
 
-/* ---- courier view ---- */
-
 .section-head {
   display: flex;
   justify-content: space-between;
@@ -304,8 +285,6 @@
   color: var(--muted);
   margin-top: 14px;
 }
-
-/* ---- admin tables ---- */
 
 .table {
   width: 100%;
@@ -353,8 +332,6 @@
   gap: 14px;
   margin-top: 14px;
 }
-
-/* status history timeline */
 
 .timeline {
   margin: 12px 0;

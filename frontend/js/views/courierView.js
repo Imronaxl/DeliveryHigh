@@ -1,22 +1,20 @@
 import { request } from '../api.js';
-import { connect, subscribe, topics } from '../ws.js';
+import { connect, subscribe, topics, observeReconnect } from '../ws.js';
 import { navigate } from '../router.js';
 import {
   STATUS, statusBadge, stepper, shortId, toast, escapeHtml,
 } from '../ui.js';
 import { createMap } from '../map.js';
 
-// какую кнопку показывать для следующего шага
 const NEXT_ACTION = {
   ASSIGNED:  { status: 'PICKED_UP',  label: 'Забрал посылку' },
   PICKED_UP: { status: 'IN_TRANSIT', label: 'Выехал к клиенту' },
   IN_TRANSIT: { status: 'DELIVERED', label: 'Доставлен' },
 };
 
-// ==================== доступные заказы ====================
-
 export async function courierAvailableView(root) {
   let orders = await request('/api/v1/courier/orders/available');
+  if (!root.isConnected) return;
 
   root.innerHTML = `
     <div class="section-head">
@@ -26,16 +24,20 @@ export async function courierAvailableView(root) {
     <div class="card-grid" id="available-list"></div>`;
 
   drawList();
+  observeReconnect(root, async () => {
+    const fresh = await request('/api/v1/courier/orders/available');
+    if (!root.isConnected) return;
+    orders = fresh;
+    drawList();
+  });
   try {
-    await connect();
-    subscribe(topics.availableOrders(), async () => {
-      toast('Появился новый заказ', 'info');
-      // событие содержит только адреса — перечитываем список целиком
+    subscribe(topics.availableOrders(), async event => {
+      if (!event.newStatus) toast('Появился новый заказ', 'info');
       orders = await request('/api/v1/courier/orders/available');
       drawList();
     });
+    await connect();
   } catch {
-    // без websocket лента работает в режиме ручного обновления
   }
 
   function drawList() {
@@ -71,15 +73,12 @@ export async function courierAvailableView(root) {
       toast(`Заказ #${shortId(orderId)} ваш`, 'success');
       navigate('/courier/active');
     } catch (error) {
-      // кто-то из курьеров мог перехватить заказ раньше
       toast(error.message, 'error');
       orders = await request('/api/v1/courier/orders/available');
       drawList();
     }
   }
 }
-
-// ==================== заказы в работе + смена ====================
 
 const PING_INTERVAL = 3000;
 const CITY_CENTER = { lat: 55.751244, lng: 37.6184 };
@@ -90,6 +89,7 @@ let shiftPoint = null;
 
 export async function courierActiveView(root) {
   let orders = await request('/api/v1/courier/orders/active');
+  if (!root.isConnected) return;
 
   root.innerHTML = `
     <div class="section-head">
@@ -101,17 +101,21 @@ export async function courierActiveView(root) {
 
   drawList();
   updateShiftUi();
+  observeReconnect(root, async () => {
+    const fresh = await request('/api/v1/courier/orders/active');
+    if (!root.isConnected) return;
+    orders = fresh;
+    drawList();
+  });
 
-  // свои статусы тоже обновляем в реальном времени (на случай гонки вкладок)
   try {
-    await connect();
     orders.forEach(order => {
       if (NEXT_ACTION[order.status]) {
         subscribe(topics.orderStatus(order.id), onStatusUpdate);
       }
     });
+    await connect();
   } catch {
-    // смена и кнопки статусов работают и без websocket
   }
 
   root.querySelector('#shift-btn').addEventListener('click', toggleShift);
@@ -178,12 +182,10 @@ export async function courierActiveView(root) {
     const order = orders.find(o => o.id === payload.orderId);
     if (!order) return;
     order.status = payload.newStatus;
+    orders = orders.filter(o => !['DELIVERED', 'CANCELLED'].includes(o.status));
     drawList();
   }
 
-  // ---- симулятор движения ----
-  // настоящий GPS в демо неотслеживаем, поэтому курьер "едет" по маршруту
-  // первого активного заказа, а без него — кружит вокруг центра города
   function toggleShift() {
     if (shiftTimer) {
       clearInterval(shiftTimer);
@@ -192,13 +194,14 @@ export async function courierActiveView(root) {
       return;
     }
 
-    const order = orders.find(o => o.status !== 'DELIVERED');
-    const route = order
-      ? { from: { lat: order.pickupLat, lng: order.pickupLng }, to: { lat: order.deliveryLat, lng: order.deliveryLng } }
-      : null;
     shiftProgress = 0;
 
+    let sending = false;
     shiftTimer = setInterval(async () => {
+      if (sending || !root.isConnected) return;
+      sending = true;
+      const order = orders.find(o => !['DELIVERED', 'CANCELLED'].includes(o.status));
+      const route = order ? { from: { lat: order.pickupLat, lng: order.pickupLng }, to: { lat: order.deliveryLat, lng: order.deliveryLng } } : null;
       shiftPoint = route ? alongRoute(route) : aroundCity();
       shiftProgress += 0.08;
 
@@ -207,11 +210,15 @@ export async function courierActiveView(root) {
           method: 'POST',
           body: { latitude: shiftPoint.lat, longitude: shiftPoint.lng },
         });
+        if (!root.querySelector('#shift-status')) return;
         root.querySelector('#shift-status').textContent =
           `передаю координаты: [${shiftPoint.lat.toFixed(5)}, ${shiftPoint.lng.toFixed(5)}]`;
         updateShiftUi(true);
       } catch {
-        root.querySelector('#shift-status').textContent = 'не удалось отправить координаты';
+        if (!root.querySelector('#shift-status')) return;
+        root.querySelector('#shift-status').textContent = 'Не удалось отправить координаты';
+      } finally {
+        sending = false;
       }
     }, PING_INTERVAL);
 
@@ -219,7 +226,6 @@ export async function courierActiveView(root) {
   }
 
   function alongRoute({ from, to }) {
-    // идём туда-обратно между точками А и Б
     const t = (Math.sin(shiftProgress) + 1) / 2;
     return {
       lat: from.lat + (to.lat - from.lat) * t,
@@ -245,7 +251,6 @@ export async function courierActiveView(root) {
   }
 }
 
-// роутер вызывает при уходе со страницы, чтобы курьер не "ехал" в фоне
 export function stopShift() {
   if (shiftTimer) {
     clearInterval(shiftTimer);

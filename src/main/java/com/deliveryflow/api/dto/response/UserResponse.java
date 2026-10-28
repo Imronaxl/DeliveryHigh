@@ -4,10 +4,4 @@ import java.time.Instant;
 import java.util.UUID;
 
 public record UserResponse(
-        UUID id,
-        String email,
-        String name,
-        String phone,
-        String role,
-        Instant createdAt
-) {}
+    UUID id, String email, String name, String phone, String role, Instant createdAt) {}

@@ -1,4 +1,3 @@
-// статусы заказов → как они выглядят в UI
 export const STATUS = {
   CREATED:    { label: 'Новый',     cls: 'created' },
   ASSIGNED:   { label: 'Назначен',  cls: 'assigned' },
@@ -30,7 +29,6 @@ export function statusBadge(status) {
   return `<span class="badge badge-${meta.cls}">${meta.label}</span>`;
 }
 
-// прогресс из 5 точек; отменённый заказ показываем красной плашкой
 export function stepper(status) {
   if (status === 'CANCELLED') {
     return '<div class="stepper"><span class="stepper-cancel">Заказ отменён</span></div>';
@@ -53,7 +51,6 @@ export function toast(message, type = 'info') {
   setTimeout(() => el.remove(), 4000);
 }
 
-// пользовательский ввод попадает в innerHTML — экранируем
 export function escapeHtml(value) {
   const div = document.createElement('div');
   div.textContent = value ?? '';

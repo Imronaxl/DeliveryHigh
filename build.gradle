@@ -31,32 +31,30 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-redis'
     implementation 'org.springframework.boot:spring-boot-starter-websocket'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.kafka:spring-kafka'
-    implementation 'org.redisson:redisson-spring-boot-starter:3.27.0'
     implementation 'io.jsonwebtoken:jjwt-api:0.12.5'
-    implementation 'io.projectreactor:reactor-core'
-    
+
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
-    
+
     runtimeOnly 'org.postgresql:postgresql'
     runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.5'
     runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.5'
-    
+
     implementation 'org.mapstruct:mapstruct:1.5.5.Final'
     annotationProcessor 'org.mapstruct:mapstruct-processor:1.5.5.Final'
-    
+    annotationProcessor 'org.projectlombok:lombok-mapstruct-binding:0.2.0'
+
     implementation 'org.flywaydb:flyway-core'
     implementation 'org.flywaydb:flyway-database-postgresql'
-    
+
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testRuntimeOnly 'com.h2database:h2'
     testImplementation 'org.springframework.security:spring-security-test'
-    testImplementation 'org.springframework.kafka:spring-kafka-test'
     testImplementation 'org.testcontainers:junit-jupiter'
     testImplementation 'org.testcontainers:postgresql'
-    testImplementation 'org.testcontainers:kafka'
-    testImplementation 'org.testcontainers:redismock'
     testImplementation 'org.mockito:mockito-core'
     testImplementation 'org.junit.jupiter:junit-jupiter'
 }
@@ -67,9 +65,13 @@ tasks.named('test') {
 
 spotless {
     java {
-        target '**/*.java'
+        target 'src/**/*.java'
         importOrder()
         removeUnusedImports()
         googleJavaFormat()
     }
+}
+
+test {
+    maxHeapSize = '512m'
 }

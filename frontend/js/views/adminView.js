@@ -1,17 +1,21 @@
 import { request } from '../api.js';
-import { connect, subscribe, topics, isConnected } from '../ws.js';
+import { connect, subscribe, topics, observeReconnect, isConnected } from '../ws.js';
 import {
   STATUS, statusBadge, stepper, formatDate, shortId, toast, escapeHtml,
 } from '../ui.js';
 import { createMap, addMarker, drawRoute } from '../map.js';
 
-// ==================== все заказы ====================
-
 const PAGE_SIZE = 10;
 
 export async function adminOrdersView(root) {
+  let currentMap = null;
+  let detailSubs = [];
+  let selectedVersion = 0;
+  let selectedId = null;
+  root.addEventListener('view:dispose', () => { selectedVersion++; currentMap?.remove(); }, { once: true });
   let page = 0;
   let data = await load(page);
+  if (!root.isConnected) return;
 
   root.innerHTML = `
     <div class="split split-wider">
@@ -40,6 +44,12 @@ export async function adminOrdersView(root) {
     </div>`;
 
   drawTable();
+  observeReconnect(root, async () => {
+    const fresh = await load(page);
+    if (!root.isConnected) return;
+    data = fresh;
+    drawTable();
+  });
 
   root.querySelector('#prev-btn').addEventListener('click', async () => {
     if (page > 0) {
@@ -58,13 +68,19 @@ export async function adminOrdersView(root) {
   });
 
   try {
+    subscribe(topics.adminOrders(), async () => {
+      const fresh = await load(page);
+      if (!root.isConnected) return;
+      data = fresh;
+      drawTable();
+      if (data.content.some(order => order.id === selectedId)) await select(selectedId);
+    });
     await connect();
   } catch {
-    // админская таблица и без live-обновлений полностью рабочая
   }
 
   async function load(pageNumber) {
-    return request(`/api/v1/admin/orders?page=${pageNumber}&size=${PAGE_SIZE}`);
+    return request(`/api/v1/admin/orders?page=${pageNumber}&size=${PAGE_SIZE}&sort=createdAt,desc`);
   }
 
   function drawTable() {
@@ -90,12 +106,18 @@ export async function adminOrdersView(root) {
   }
 
   async function select(orderId) {
+    selectedId = orderId;
+    const version = ++selectedVersion;
     const order = data.content.find(o => o.id === orderId);
     if (!order) return;
 
     const detail = root.querySelector('#admin-detail');
     const history = await request(`/api/v1/admin/orders/${orderId}/history`);
 
+    if (version !== selectedVersion || !root.isConnected) return;
+    detailSubs.forEach(sub => sub.unsubscribe());
+    detailSubs = [];
+    currentMap?.remove();
     detail.innerHTML = `
       <div class="card">
         <div class="detail-head">
@@ -130,16 +152,16 @@ export async function adminOrdersView(root) {
       { key: 'pickup', lat: order.pickupLat, lng: order.pickupLng, cls: 'marker-a', label: 'A' },
       { key: 'delivery', lat: order.deliveryLat, lng: order.deliveryLng, cls: 'marker-b', label: 'B' },
     ]).map;
+    currentMap = map;
     drawRoute(
       map,
       { lat: order.pickupLat, lng: order.pickupLng },
       { lat: order.deliveryLat, lng: order.deliveryLng }
     );
 
-    // админ тоже видит движение курьера в реальном времени
     let courierMarker = null;
-    if (isConnected()) {
-      subscribe(topics.courierLocation(order.courierId), point => {
+    if (order.courierId) {
+      detailSubs.push(subscribe(topics.courierLocation(order.courierId), point => {
         if (!courierMarker) {
           courierMarker = addMarker(map, {
             lat: point.latitude,
@@ -149,26 +171,16 @@ export async function adminOrdersView(root) {
         } else {
           courierMarker.setLatLng([point.latitude, point.longitude]);
         }
-      });
+      }));
     }
 
-    // живое обновление статуса выбранного заказа
-    if (isConnected()) {
-      subscribe(topics.orderStatus(order.id), payload => {
-        order.status = payload.newStatus;
-        detail.querySelector('#detail-badge').innerHTML = statusBadge(order.status);
-        detail.querySelector('#detail-stepper').innerHTML = stepper(order.status);
-        drawTable();
-        toast(`Заказ #${shortId(order.id)}: ${STATUS[order.status].label}`, 'success');
-      });
-    }
+
   }
 }
 
-// ==================== курьеры ====================
-
 export async function adminCouriersView(root) {
   const couriers = await request('/api/v1/admin/couriers');
+  if (!root.isConnected) return;
 
   root.innerHTML = `
     <h2>Курьеры <span class="count">${couriers.length}</span></h2>

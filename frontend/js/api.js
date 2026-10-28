@@ -17,9 +17,9 @@ async function parseError(response) {
   }
 }
 
-// единая точка входа для всех запросов: добавляет JWT-заголовок,
-// а при 401 один раз пробует обновить токен через /auth/refresh
-export async function request(path, options = {}) {
+let refreshing = null;
+
+export async function request(path, options = {}, retried = false) {
   const headers = { ...(options.headers || {}) };
   if (options.body) headers['Content-Type'] = 'application/json';
 
@@ -33,8 +33,8 @@ export async function request(path, options = {}) {
   });
 
   if (response.status === 401 && !path.startsWith('/api/v1/auth/')) {
-    if (await tryRefresh()) {
-      return request(path, options); // повторяем с новым токеном
+    if (!retried && await refreshSession()) {
+      return request(path, options, true); // повторяем с новым токеном
     }
     logout();
     location.hash = '#/login';
@@ -50,7 +50,7 @@ export async function request(path, options = {}) {
 }
 
 async function tryRefresh() {
-  const refreshToken = localStorage.getItem('df_refresh_token');
+  const refreshToken = sessionStorage.getItem('df_refresh_token');
   if (!refreshToken) return false;
 
   try {
@@ -65,4 +65,9 @@ async function tryRefresh() {
   } catch {
     return false;
   }
+}
+
+export async function refreshSession() {
+  if (!refreshing) refreshing = tryRefresh().finally(() => { refreshing = null; });
+  return refreshing;
 }

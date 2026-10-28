@@ -49,7 +49,6 @@ export function loginView(root) {
 const ROLES = [
   { value: 'CLIENT', title: 'Клиент', hint: 'Создаю заказы' },
   { value: 'COURIER', title: 'Курьер', hint: 'Вожу посылки' },
-  { value: 'ADMIN', title: 'Админ', hint: 'Вижу всё' },
 ];
 
 export function registerView(root) {
