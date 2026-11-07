@@ -76,4 +76,25 @@ class EventOutboxTest {
     assertThatThrownBy(outbox::publish).isInstanceOf(IllegalStateException.class);
     verify(jdbc, never()).update(eq("delete from event_outbox where id = ?"), any(Object.class));
   }
+
+  @Test
+  void unknownEventTypeIsSetAsideInsteadOfBlockingTheQueue() throws Exception {
+    when(jdbc.queryForList(anyString()))
+        .thenReturn(
+            List.of(
+                Map.of(
+                    "id",
+                    7L,
+                    "topic",
+                    "orders.created",
+                    "event_key",
+                    "key",
+                    "event_type",
+                    "com.example.Missing",
+                    "payload",
+                    "{}")));
+    outbox.publish();
+    verify(kafka, never()).send(anyString(), anyString(), any());
+    verify(jdbc).update("update event_outbox set failed_at = now() where id = ?", 7L);
+  }
 }

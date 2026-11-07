@@ -42,7 +42,7 @@ spring:
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
 
 jwt:
-  secret: ${JWT_SECRET:deliveryflow-secret-key-for-jwt-token-generation-must-be-long-enough}
+  secret: ${JWT_SECRET}
   expiration: 86400000
   refresh-expiration: 604800000
 

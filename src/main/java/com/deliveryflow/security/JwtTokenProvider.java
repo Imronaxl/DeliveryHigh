@@ -17,16 +17,21 @@ public class JwtTokenProvider {
   private static final String CLAIM_TYPE = "type";
   private static final String TYPE_ACCESS = "access";
   private static final String TYPE_REFRESH = "refresh";
+  private static final int MIN_SECRET_BYTES = 32;
 
   private final SecretKey secretKey;
   private final long jwtExpirationMs;
   private final long refreshExpirationMs;
 
   public JwtTokenProvider(
-      @Value("${jwt.secret:DeliveryFlowSecretKeyForJWTTokenGeneration2024}") String secret,
+      @Value("${jwt.secret}") String secret,
       @Value("${jwt.expiration:86400000}") long jwtExpirationMs,
       @Value("${jwt.refresh-expiration:604800000}") long refreshExpirationMs) {
-    this.secretKey = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
+    byte[] key = secret.getBytes(StandardCharsets.UTF_8);
+    if (key.length < MIN_SECRET_BYTES) {
+      throw new IllegalStateException("JWT_SECRET must be at least 32 bytes long");
+    }
+    this.secretKey = Keys.hmacShaKeyFor(key);
     this.jwtExpirationMs = jwtExpirationMs;
     this.refreshExpirationMs = refreshExpirationMs;
   }
