@@ -44,9 +44,9 @@ public class EventOutbox {
   }
 
   /**
-   * Sends pending events to Kafka in order. A broker failure aborts the batch and rolls back, so the
-   * same rows are retried and order is kept. A row that can never be sent (unknown type or
-   * broken payload) is marked with failed_at and skipped, so it cannot block the rows behind it.
+   * Sends pending events to Kafka in order. A broker failure rolls the batch back, so the same rows
+   * are retried in the same order. A row that can never be sent (unknown type or broken payload) is
+   * marked with failed_at and skipped, so it cannot block the rows behind it.
    */
   @Scheduled(fixedDelayString = "${outbox.interval-ms:500}")
   @Transactional
